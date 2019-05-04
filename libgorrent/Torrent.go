@@ -3,7 +3,6 @@ package libgorrent
 import (
 	"log"
 	"sync"
-	"time"
 )
 
 // EventEnum TODO
@@ -104,11 +103,26 @@ func (t *Torrent) ResumeFromFile() error {
 // Start TODO
 func (t *Torrent) Start() {
 	// Me conecto a los trackers
+	peers := make(chan *Peer)
 	for _, tr := range t.Trackers {
-		go tr.Start()
+		go tr.Start(peers)
 	}
 	// Inicializo el dispatcher de pares
-	go t.startPeers()
+
+	var wg sync.WaitGroup
+	const numDigesters = 5
+	wg.Add(numDigesters)
+	for i := 0; i < numDigesters; i++ {
+		go func() {
+			t.startPeers(peers)
+			wg.Done()
+		}()
+	}
+	go func() {
+		wg.Wait()
+		close(peers)
+	}()
+
 }
 
 // Debug TODO
@@ -125,26 +139,12 @@ func (t *Torrent) Debug() {
 	log.Printf("    |  Perc: %f%%\n", float64(t.Downloaded)/float64(t.Left+t.Downloaded))
 }
 
-func (t *Torrent) startPeers() {
-	for {
-		// log.Printf("%d\n", len(t.peersConnected))
-		// if len(t.peersConnected) >= 10 {
-		// 	log.Printf("Enough peers\n")
-		// 	time.Sleep(1 * time.Second)
-		// } else {
-		// 	log.Printf("NOT Enough peers\n")
-		p := t.getAPeer()
+func (t *Torrent) startPeers(peers chan *Peer) {
+	for p := range peers {
 		if p != nil {
-			// t.peersConnected <- 1
 			p.using = true
-			go func() {
-				p.Connect()
-				// <-t.peersConnected
-			}()
-		} else {
-			time.Sleep(1 * time.Second)
+			p.Connect()
 		}
-		// }
 	}
 }
 
