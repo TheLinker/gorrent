@@ -80,12 +80,12 @@ func (tr *Tracker) ResumeFromFile() error {
 }
 
 // Start GoRoutine TODO
-func (tr *Tracker) Start(peers chan *Peer) {
+func (tr *Tracker) Start() {
 	for {
 		if tr.Status == NotConnected {
 			switch tr.Protocol {
 			case HTTP:
-				if err := tr.connectHTTP(peers); err != nil {
+				if err := tr.connectHTTP(); err != nil {
 					log.Println(err.Error())
 					tr.LastError = err.Error()
 					tr.Status = Error
@@ -108,7 +108,7 @@ func (tr *Tracker) Start(peers chan *Peer) {
 	}
 }
 
-func (tr *Tracker) connectHTTP(peers chan *Peer) error {
+func (tr *Tracker) connectHTTP() error {
 	req, err := http.NewRequest("GET", tr.URL, nil)
 	if err != nil {
 		return errors.New("Could not create request to " + tr.URL + ": " + err.Error())
@@ -158,7 +158,6 @@ func (tr *Tracker) connectHTTP(peers chan *Peer) error {
 
 		p.Init()
 		tr.torrent.addPeer(p)
-		peers <- p
 	}
 
 	tr.interval = res.Interval

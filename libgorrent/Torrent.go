@@ -2,17 +2,20 @@ package libgorrent
 
 import (
 	"log"
+	"sort"
 	"sync"
 )
 
-// EventEnum TODO
-type EventEnum int
+// StatusEnum TODO
+type StatusEnum int
 
 const (
-	// Started The first request to the tracker must include the event key with this value.
-	Started EventEnum = iota
 	// Stopped Must be sent to the tracker if the client is shutting down gracefully
-	Stopped
+	Stopped StatusEnum = iota
+
+	// Started The first request to the tracker must include the event key with this value.
+	Started
+
 	// Completed Must be sent to the tracker when the download completes.
 	// However, must not be sent if the download was already 100% complete when the client started.
 	Completed
@@ -41,7 +44,7 @@ type Torrent struct {
 	Downloaded int64
 	Uploaded   int64
 	Left       int64
-	Event      EventEnum
+	Status     StatusEnum
 	Trackers   []*Tracker
 	Peers      []*Peer
 	Bitmap     []PieceMap
@@ -50,9 +53,21 @@ type Torrent struct {
 	//Privates
 	session       *Session
 	mutexPeers    sync.RWMutex
-	peersAvailIn  chan<- interface{}
-	peersAvailOut <-chan interface{}
+	peersAvailIn  chan<- *Peer
+	peersAvailOut <-chan *Peer
 	// peersConnected chan interface{}
+}
+
+// ByStatus implements sort.Interface for []*Peer based on the PeerStatus field.
+type ByStatus []*Peer
+
+func (a ByStatus) Len() int      { return len(a) }
+func (a ByStatus) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
+func (a ByStatus) Less(i, j int) bool {
+	if a[i].PeerStatus == a[j].PeerStatus {
+		return string(a[i].String()) < string(a[j].String())
+	}
+	return a[i].PeerStatus > a[j].PeerStatus
 }
 
 // Init TODO
@@ -74,6 +89,7 @@ func (t *Torrent) Init() error {
 
 	t.Bitmap = make([]PieceMap, len(t.File.Info.Pieces))
 	t.BitmapChan = make(chan int64)
+	t.Status = Stopped
 
 	return nil
 }
@@ -97,30 +113,34 @@ func (t *Torrent) ResumeFromFile() error {
 			return err
 		}
 	}
+	if t.Status == Started {
+		t.Start()
+	}
 	return nil
 }
 
 // Start TODO
 func (t *Torrent) Start() {
+	t.Status = Started
+
 	// Me conecto a los trackers
-	peers := make(chan *Peer)
 	for _, tr := range t.Trackers {
-		go tr.Start(peers)
+		go tr.Start()
 	}
 	// Inicializo el dispatcher de pares
 
 	var wg sync.WaitGroup
-	const numDigesters = 5
+	const numDigesters = 10
 	wg.Add(numDigesters)
 	for i := 0; i < numDigesters; i++ {
 		go func() {
-			t.startPeers(peers)
+			t.startPeers(t.peersAvailOut)
 			wg.Done()
 		}()
 	}
 	go func() {
 		wg.Wait()
-		close(peers)
+		close(t.peersAvailIn)
 	}()
 
 }
@@ -133,13 +153,14 @@ func (t *Torrent) Debug() {
 		log.Printf("      |  Fname: %s\n", file.Path)
 	}
 	log.Printf("    | Peers: %d\n", len(t.Peers))
+	sort.Sort(ByStatus(t.Peers))
 	for _, peer := range t.Peers {
 		log.Printf("      |  Peer: %21s %d %s\n", peer, peer.PeerStatus, peer.ErrorReason)
 	}
 	log.Printf("    |  Perc: %f%%\n", float64(t.Downloaded)/float64(t.Left+t.Downloaded))
 }
 
-func (t *Torrent) startPeers(peers chan *Peer) {
+func (t *Torrent) startPeers(peers <-chan *Peer) {
 	for p := range peers {
 		if p != nil {
 			p.using = true
@@ -158,6 +179,7 @@ func (t *Torrent) addPeer(p *Peer) {
 	defer t.mutexPeers.Unlock()
 	p.SetTorrent(t)
 	t.Peers = append(t.Peers, p)
+	t.peersAvailIn <- p
 }
 
 func (t *Torrent) getAPeer() *Peer {

@@ -30,7 +30,7 @@ type Peer struct {
 	Interested  bool
 	PeerStatus  PeerStatus
 	ErrorReason string
-	PeerID      []byte
+	PeerID      [20]byte
 
 	// Privates
 	torrent *Torrent
@@ -68,10 +68,15 @@ func (p *Peer) String() string {
 	return fmt.Sprintf("%s:%d", p.IP, p.Port)
 }
 
+// ConnectAddr TODO
+func (p *Peer) ConnectAddr() string {
+	return fmt.Sprintf("%s:%d", p.IP, p.Port)
+}
+
 // Open TODO
 func (p *Peer) Open() (conn net.Conn, err error) {
-	log.Printf("%21s Dial\n", p.String())
-	conn, err = net.DialTimeout("tcp", p.String(), 5*time.Second)
+	log.Printf("%21s Dial\n", p.ConnectAddr())
+	conn, err = net.DialTimeout("tcp", p.ConnectAddr(), 5*time.Second)
 	if err != nil {
 		err = errors.New("Dialing " + p.String() + " failed: " + err.Error())
 	}
@@ -108,10 +113,13 @@ func (p *Peer) Connect() {
 	p.PeerStatus = PeerConnected
 
 	for {
+		if p.PeerStatus == PeerError {
+			return
+		}
 		// Leo 4 bytes BigEndian
 		var l int32
 
-		err = conn.SetDeadline(time.Now().Add(2 * 60 * time.Second))
+		err = conn.SetDeadline(time.Now().Add(2 * time.Second))
 		if err != nil {
 			continue
 		}
@@ -142,6 +150,29 @@ func (p *Peer) Connect() {
 			// Keep Alive
 			// Niice
 			continue
+		}
+
+		var pkg_id byte
+		err = binary.Read(r, binary.BigEndian, &pkg_id)
+		if !p.checkConnStatus(err) {
+			return
+		}
+
+		switch pkg_id {
+		case 0:
+			log.Printf("%21s- Choke\n", p)
+		case 1:
+			log.Printf("%21s- UnChoke\n", p)
+		case 2:
+			log.Printf("%21s- Interested\n", p)
+		case 3:
+			log.Printf("%21s- Not Interested\n", p)
+		case 4:
+			log.Printf("%21s- Have\n", p)
+		case 5:
+			log.Printf("%21s- Bitfield\n", p)
+		case 6:
+			log.Printf("%21s- Request\n", p)
 		}
 
 		data := make([]byte, r.Buffered())
@@ -179,7 +210,6 @@ func (p *Peer) doHandshake(r *bufio.Reader, w *bufio.Writer) error {
 	}
 
 	ret := make([]byte, 49+19)
-
 	n, err := io.ReadFull(r, ret)
 	if err != nil {
 		to, ok := err.(interface{ Timeout() bool })
@@ -190,12 +220,12 @@ func (p *Peer) doHandshake(r *bufio.Reader, w *bufio.Writer) error {
 		return err
 	}
 
-	err = restruct.Unpack(ret, binary.BigEndian, c)
+	err = restruct.Unpack(ret, binary.BigEndian, &c)
 	if err != nil {
 		return err
 	}
 
-	copy(p.PeerID[:], c.PeerID[:])
+	copy(p.PeerID[:], c.PeerID[:20])
 
 	return nil
 }

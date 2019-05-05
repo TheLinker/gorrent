@@ -18,17 +18,19 @@ type Session struct {
 	peerID []byte
 }
 
+func generateRandomBytes(n int) []byte {
+	b := make([]byte, n)
+	rand.Read(b)
+	return b
+}
+
 // NewSession TODO
 func NewSession() (*Session, error) {
 
-	PeerID := make([]byte, 20)
-	_, err := rand.Read(PeerID)
-	if err != nil {
-		return nil, err
-	}
+	PeerID := "-GOR000-" + randStringBytesMaskImprSrcUnsafe(20-len("-GOR000-"))
 
 	return &Session{
-		peerID: []byte("-GOR-123456789012345"),
+		peerID: []byte(PeerID),
 		port:   1337, // Deberia venir de alguna config
 	}, nil
 }
@@ -96,7 +98,7 @@ func (s *Session) AddTorrent(tor *TorrentFile) (*Torrent, error) {
 		Downloaded: 0,
 		Uploaded:   0,
 		Left:       tor.GetLength(),
-		Event:      Stopped,
+		Status:     Stopped,
 		Trackers:   make([]*Tracker, 0),
 	}
 

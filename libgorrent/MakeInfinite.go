@@ -1,17 +1,17 @@
 package libgorrent
 
-func makeInfinite() (chan<- interface{}, <-chan interface{}) {
-	in := make(chan interface{})
-	out := make(chan interface{})
+func makeInfinite() (chan<- *Peer, <-chan *Peer) {
+	in := make(chan *Peer)
+	out := make(chan *Peer)
 	go func() {
-		var inQueue []interface{}
-		outCh := func() chan interface{} {
+		var inQueue []*Peer
+		outCh := func() chan *Peer {
 			if len(inQueue) == 0 {
 				return nil
 			}
 			return out
 		}
-		curVal := func() interface{} {
+		curVal := func() *Peer {
 			if len(inQueue) == 0 {
 				return nil
 			}
